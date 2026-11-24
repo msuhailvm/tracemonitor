@@ -1,0 +1,17 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.nupkg
+.vs/
+
+# Node / React
+ui/node_modules/
+ui/dist/
+ui/.env
+ui/.env.local
+
+# OS / Editors
+.DS_Store
+Thumbs.db

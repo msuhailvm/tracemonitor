@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>TraceMonitor.Client</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>TraceMonitor</Authors>
+    <Description>Lightweight non-blocking log, trace, outgoing HTTP, lifecycle, and process metric SDK for ASP.NET Core (.NET 8 &amp; .NET 10).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>
