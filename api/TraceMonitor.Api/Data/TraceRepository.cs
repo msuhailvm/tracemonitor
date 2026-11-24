@@ -416,6 +416,7 @@ public sealed class TraceRepository
                  AND (
                     l.search_vector @@ websearch_to_tsquery('simple', @FreeText)
                     OR l.request_path ILIKE @LikeText
+                    OR l.query_string ILIKE @LikeText
                     OR l.message ILIKE @LikeText
                     OR l.exception_message ILIKE @LikeText
                     OR l.trace_id ILIKE @LikeText
@@ -448,6 +449,7 @@ public sealed class TraceRepository
                 l.environment AS Environment,
                 l.http_method AS HttpMethod,
                 l.request_path AS RequestPath,
+                l.query_string AS QueryString,
                 l.target_host AS TargetHost,
                 l.status_code AS StatusCode,
                 l.elapsed_ms AS ElapsedMs,
@@ -530,6 +532,7 @@ public sealed class TraceRepository
                 l.environment AS Environment,
                 l.http_method AS HttpMethod,
                 l.request_path AS RequestPath,
+                l.query_string AS QueryString,
                 l.target_host AS TargetHost,
                 l.status_code AS StatusCode,
                 l.elapsed_ms AS ElapsedMs,

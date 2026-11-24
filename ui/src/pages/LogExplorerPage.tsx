@@ -390,9 +390,15 @@ export function LogExplorerPage() {
                           <span className="text-indigo-300 mr-1">{row.targetHost}</span>
                         ) : null}
                         {row.requestPath && !row.message?.includes(row.requestPath) ? (
-                          <span className="text-slate-300 mr-2">{row.requestPath}</span>
+                          <span className="text-slate-300 mr-2">
+                            {row.requestPath}
+                            {row.queryString ?? ''}
+                          </span>
                         ) : null}
                         <span className="text-slate-300">{row.message || row.exceptionType || '—'}</span>
+                        {row.queryString && row.message && !row.message.includes(row.queryString) ? (
+                          <span className="text-slate-400 ml-1.5">{row.queryString}</span>
+                        ) : null}
                       </td>
                     </tr>
                   ))

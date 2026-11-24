@@ -44,6 +44,12 @@ public sealed class TraceMonitorHttpHandler : DelegatingHandler
             request.Headers.TryAddWithoutValidation(TraceMonitorMiddleware.TraceIdHeader, traceId);
         }
 
+        string? requestBody = null;
+        if (_options.CaptureRequestBody && request.Content is not null)
+        {
+            requestBody = await ReadOutgoingRequestBodyAsync(request.Content, cancellationToken).ConfigureAwait(false);
+        }
+
         var sw = Stopwatch.StartNew();
         HttpResponseMessage? response = null;
         Exception? capturedException = null;
@@ -69,6 +75,9 @@ public sealed class TraceMonitorHttpHandler : DelegatingHandler
                     ? "Warning"
                     : "Information";
 
+            var queryString = string.IsNullOrEmpty(uri?.Query) ? null : uri.Query;
+            var targetUrl = $"{uri?.Authority}{uri?.AbsolutePath}{queryString}";
+
             _queue.EnqueueLog(new LogEventDto
             {
                 Timestamp = DateTimeOffset.UtcNow,
@@ -80,16 +89,42 @@ public sealed class TraceMonitorHttpHandler : DelegatingHandler
                 HttpMethod = request.Method.Method,
                 TargetHost = uri?.Authority,
                 RequestPath = uri?.AbsolutePath,
-                QueryString = string.IsNullOrEmpty(uri?.Query) ? null : uri.Query,
+                QueryString = queryString,
                 StatusCode = statusCode,
                 ElapsedMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2),
                 Message = capturedException is not null
-                    ? $"Outgoing {request.Method.Method} {uri?.Authority}{uri?.AbsolutePath} failed: {capturedException.Message}"
-                    : $"Outgoing {request.Method.Method} {uri?.Authority}{uri?.AbsolutePath} -> {statusCode} in {sw.Elapsed.TotalMilliseconds:F1}ms",
+                    ? $"Outgoing {request.Method.Method} {targetUrl} failed: {capturedException.Message}"
+                    : $"Outgoing {request.Method.Method} {targetUrl} -> {statusCode} in {sw.Elapsed.TotalMilliseconds:F1}ms",
                 ExceptionType = capturedException?.GetType().FullName,
                 ExceptionMessage = capturedException?.Message,
-                StackTrace = capturedException?.ToString()
+                StackTrace = capturedException?.ToString(),
+                RequestBody = requestBody
             });
+        }
+    }
+
+    private async Task<string?> ReadOutgoingRequestBodyAsync(HttpContent content, CancellationToken ct)
+    {
+        try
+        {
+            var mediaType = content.Headers.ContentType?.MediaType;
+            if (!string.IsNullOrWhiteSpace(mediaType) &&
+                !mediaType.Contains("json", StringComparison.OrdinalIgnoreCase) &&
+                !mediaType.Contains("text", StringComparison.OrdinalIgnoreCase) &&
+                !mediaType.Contains("xml", StringComparison.OrdinalIgnoreCase) &&
+                !mediaType.Contains("form-urlencoded", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            // LoadIntoBufferAsync ensures the content can still be sent by the inner handler after reading
+            await content.LoadIntoBufferAsync().ConfigureAwait(false);
+            var raw = await content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            return BodyRedactor.RedactAndTruncateBody(raw, mediaType, _options);
+        }
+        catch
+        {
+            return null;
         }
     }
 

@@ -141,6 +141,7 @@ public sealed class LogSummaryDto
     public string? Environment { get; set; }
     public string? HttpMethod { get; set; }
     public string? RequestPath { get; set; }
+    public string? QueryString { get; set; }
     public string? TargetHost { get; set; }
     public int? StatusCode { get; set; }
     public double? ElapsedMs { get; set; }

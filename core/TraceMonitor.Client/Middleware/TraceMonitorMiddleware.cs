@@ -98,6 +98,9 @@ public sealed class TraceMonitorMiddleware
                     ? "Warning"
                     : "Information";
 
+            var queryString = context.Request.QueryString.HasValue ? context.Request.QueryString.Value : null;
+            var pathAndQuery = $"{context.Request.Path}{queryString}";
+
             var logEvent = new LogEventDto
             {
                 Timestamp = DateTimeOffset.UtcNow,
@@ -108,14 +111,14 @@ public sealed class TraceMonitorMiddleware
                 Environment = _options.Environment,
                 HttpMethod = context.Request.Method,
                 RequestPath = context.Request.Path.Value,
-                QueryString = context.Request.QueryString.HasValue ? context.Request.QueryString.Value : null,
+                QueryString = queryString,
                 StatusCode = statusCode,
                 ElapsedMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2),
                 ClientIp = ResolveClientIp(context),
                 UserAgent = context.Request.Headers.UserAgent.ToString(),
                 Message = capturedException is not null
-                    ? $"{context.Request.Method} {context.Request.Path} threw {capturedException.GetType().Name}: {capturedException.Message}"
-                    : $"{context.Request.Method} {context.Request.Path} responded {statusCode} in {sw.Elapsed.TotalMilliseconds:F1}ms",
+                    ? $"{context.Request.Method} {pathAndQuery} threw {capturedException.GetType().Name}: {capturedException.Message}"
+                    : $"{context.Request.Method} {pathAndQuery} responded {statusCode} in {sw.Elapsed.TotalMilliseconds:F1}ms",
                 ExceptionType = capturedException?.GetType().FullName,
                 ExceptionMessage = capturedException?.Message,
                 StackTrace = capturedException?.ToString(),
@@ -194,11 +197,22 @@ public sealed class TraceMonitorMiddleware
                 bufferSize: 4096,
                 leaveOpen: true);
 
-            var buffer = new char[Math.Min(_options.MaxBodyLengthBytes + 256, 65536)];
-            var read = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
+            var maxChars = Math.Min(_options.MaxBodyLengthBytes + 256, 65536);
+            var sb = new StringBuilder();
+            var buffer = new char[4096];
+            while (sb.Length < maxChars)
+            {
+                var toRead = Math.Min(buffer.Length, maxChars - sb.Length);
+                var read = await reader.ReadAsync(buffer, 0, toRead).ConfigureAwait(false);
+                if (read == 0)
+                {
+                    break;
+                }
+                sb.Append(buffer, 0, read);
+            }
             request.Body.Position = 0;
 
-            return read > 0 ? new string(buffer, 0, read) : null;
+            return sb.Length > 0 ? sb.ToString() : null;
         }
         catch
         {

@@ -277,7 +277,11 @@ export function LogDetailDrawer({ logId, onClose, onSelectLog }: LogDetailDrawer
                         {item.httpMethod && (
                           <span className="text-sky-400 mr-1.5">{item.httpMethod}</span>
                         )}
-                        {item.targetHost ? `${item.targetHost}${item.requestPath ?? ''}` : item.requestPath || item.message}
+                        {item.targetHost
+                          ? `${item.targetHost}${item.requestPath ?? ''}${item.queryString ?? ''}`
+                          : item.requestPath
+                            ? `${item.requestPath}${item.queryString ?? ''}`
+                            : item.message}
                       </div>
                     </button>
                   ))}

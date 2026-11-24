@@ -49,6 +49,7 @@ export interface LogSummaryDto {
   environment: string | null;
   httpMethod: string | null;
   requestPath: string | null;
+  queryString: string | null;
   targetHost: string | null;
   statusCode: number | null;
   elapsedMs: number | null;

@@ -38,3 +38,23 @@ A lightweight, Splunk-inspired log, trace, and health monitoring platform for yo
      app.UseTraceMonitor();
      ```
    - Register each API in the **Applications & Health** page to get its `tm_live_...` key and paste it into `appsettings.json`.
+   - **Optional — Capture EF Core SQL Queries:** Set `TraceMonitor:MinimumLogLevel` to `Information` and scope `Logging:TraceMonitor` so only `Warning+` logs and EF Core SQL commands are shipped (without affecting Console/other loggers):
+     ```json
+     {
+       "Logging": {
+         "LogLevel": {
+           "Default": "Information",
+           "Microsoft.AspNetCore": "Warning"
+         },
+         "TraceMonitor": {
+           "LogLevel": {
+             "Default": "Warning",
+             "Microsoft.EntityFrameworkCore.Database.Command": "Information"
+           }
+         }
+       },
+       "TraceMonitor": {
+         "MinimumLogLevel": "Information"
+       }
+     }
+     ```

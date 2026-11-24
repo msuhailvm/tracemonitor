@@ -7,6 +7,7 @@ using TraceMonitor.Client.Transport;
 
 namespace TraceMonitor.Client.Logging;
 
+[ProviderAlias("TraceMonitor")]
 public sealed class TraceMonitorLoggerProvider : ILoggerProvider
 {
     private readonly ITraceMonitorQueue _queue;
