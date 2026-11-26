@@ -4,6 +4,7 @@ import { getStoredToken } from './api/client';
 import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { LogExplorerPage } from './pages/LogExplorerPage';
+import { AnalyticsPage } from './pages/AnalyticsPage';
 import { ApplicationsPage } from './pages/ApplicationsPage';
 
 const queryClient = new QueryClient({
@@ -33,6 +34,7 @@ export function App() {
             }
           >
             <Route path="/" element={<LogExplorerPage />} />
+            <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/applications" element={<ApplicationsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

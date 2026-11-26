@@ -133,6 +133,7 @@ app.MapAuthEndpoints();
 app.MapIngestEndpoints();
 app.MapLogsEndpoints();
 app.MapApplicationsEndpoints();
+app.MapAnalyticsEndpoints();
 
 // Bootstrap default admin user if users table is empty
 try

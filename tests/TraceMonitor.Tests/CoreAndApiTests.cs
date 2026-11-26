@@ -118,4 +118,27 @@ public class CoreAndApiTests
         Assert.Equal("System.InvalidOperationException", log.ExceptionType);
         Assert.Equal("Boom!", log.ExceptionMessage);
     }
+
+    [Fact]
+    public void AnalyticsBucketHelper_SelectsAppropriateBucketSizesAndExpressions()
+    {
+        var now = new DateTimeOffset(2026, 11, 26, 12, 34, 56, TimeSpan.Zero);
+
+        Assert.Equal(60, AnalyticsBucketHelper.ResolveBucketSeconds(now.AddHours(-1), now));
+        Assert.Equal(300, AnalyticsBucketHelper.ResolveBucketSeconds(now.AddHours(-6), now));
+        Assert.Equal(900, AnalyticsBucketHelper.ResolveBucketSeconds(now.AddHours(-24), now));
+        Assert.Equal(3600, AnalyticsBucketHelper.ResolveBucketSeconds(now.AddDays(-3), now));
+        Assert.Equal(21600, AnalyticsBucketHelper.ResolveBucketSeconds(now.AddDays(-7), now));
+        Assert.Equal(86400, AnalyticsBucketHelper.ResolveBucketSeconds(now.AddDays(-30), now));
+        Assert.Equal(300, AnalyticsBucketHelper.ResolveBucketSeconds(now.AddDays(-30), now, "5m"));
+
+        Assert.Equal("date_trunc('minute', l.timestamp)", AnalyticsBucketHelper.BuildBucketExpression("l.timestamp", 60));
+        Assert.Equal("date_trunc('hour', l.timestamp)", AnalyticsBucketHelper.BuildBucketExpression("l.timestamp", 3600));
+        Assert.Equal("date_trunc('day', l.timestamp)", AnalyticsBucketHelper.BuildBucketExpression("l.timestamp", 86400));
+        Assert.Contains("to_timestamp(floor(extract(epoch from l.timestamp) / 900) * 900)",
+            AnalyticsBucketHelper.BuildBucketExpression("l.timestamp", 900));
+
+        var floored = AnalyticsBucketHelper.FloorToBucket(now, 900);
+        Assert.Equal(new DateTimeOffset(2026, 11, 26, 12, 30, 0, TimeSpan.Zero), floored);
+    }
 }

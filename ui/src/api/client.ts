@@ -1,12 +1,19 @@
 import type {
+  AnalyticsFilterParams,
   ApplicationDto,
   ApplicationHealthDto,
   CreateApplicationResponse,
+  ErrorRateAnalyticsResponse,
+  LatencyAnalyticsResponse,
   LogDetailDto,
   LogSearchParams,
   LogSearchResponse,
   LoginResponse,
+  ResourceAnalyticsResponse,
+  TopExceptionsResponse,
   TraceLogsResponse,
+  VolumeAnalyticsParams,
+  VolumeAnalyticsResponse,
 } from '../types/telemetry';
 
 const DEFAULT_API_BASE_URL = import.meta.env.PROD
@@ -120,4 +127,55 @@ export const apiClient = {
 
   getTraceLogs: (traceId: string) =>
     apiFetch<TraceLogsResponse>(`/api/v1/logs/trace/${encodeURIComponent(traceId)}`),
+
+  getVolumeAnalytics: (params: VolumeAnalyticsParams) => {
+    const qs = new URLSearchParams();
+    if (params.q) qs.set('q', params.q);
+    if (params.applicationIds?.length) qs.set('applicationIds', params.applicationIds.join(','));
+    if (params.levels?.length) qs.set('levels', params.levels.join(','));
+    if (params.eventTypes?.length) qs.set('eventTypes', params.eventTypes.join(','));
+    if (params.statusRange) qs.set('statusRange', params.statusRange);
+    if (params.from) qs.set('from', params.from);
+    if (params.to) qs.set('to', params.to);
+    if (params.traceId) qs.set('traceId', params.traceId);
+    if (params.groupBy) qs.set('groupBy', params.groupBy);
+    if (params.interval) qs.set('interval', params.interval);
+    return apiFetch<VolumeAnalyticsResponse>(`/api/v1/analytics/volume?${qs.toString()}`);
+  },
+
+  getErrorRateAnalytics: (params: AnalyticsFilterParams) => {
+    const qs = new URLSearchParams();
+    if (params.applicationIds?.length) qs.set('applicationIds', params.applicationIds.join(','));
+    if (params.from) qs.set('from', params.from);
+    if (params.to) qs.set('to', params.to);
+    if (params.interval) qs.set('interval', params.interval);
+    return apiFetch<ErrorRateAnalyticsResponse>(`/api/v1/analytics/error-rate?${qs.toString()}`);
+  },
+
+  getLatencyAnalytics: (params: AnalyticsFilterParams & { top?: number }) => {
+    const qs = new URLSearchParams();
+    if (params.applicationIds?.length) qs.set('applicationIds', params.applicationIds.join(','));
+    if (params.from) qs.set('from', params.from);
+    if (params.to) qs.set('to', params.to);
+    if (params.interval) qs.set('interval', params.interval);
+    if (params.top) qs.set('top', String(params.top));
+    return apiFetch<LatencyAnalyticsResponse>(`/api/v1/analytics/latency?${qs.toString()}`);
+  },
+
+  getResourceAnalytics: (params: AnalyticsFilterParams) => {
+    const qs = new URLSearchParams();
+    if (params.applicationIds?.length) qs.set('applicationIds', params.applicationIds.join(','));
+    if (params.from) qs.set('from', params.from);
+    if (params.to) qs.set('to', params.to);
+    return apiFetch<ResourceAnalyticsResponse>(`/api/v1/analytics/resources?${qs.toString()}`);
+  },
+
+  getTopExceptions: (params: AnalyticsFilterParams & { limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params.applicationIds?.length) qs.set('applicationIds', params.applicationIds.join(','));
+    if (params.from) qs.set('from', params.from);
+    if (params.to) qs.set('to', params.to);
+    if (params.limit) qs.set('limit', String(params.limit));
+    return apiFetch<TopExceptionsResponse>(`/api/v1/analytics/top-exceptions?${qs.toString()}`);
+  },
 };

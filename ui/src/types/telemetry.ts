@@ -95,3 +95,147 @@ export interface LogSearchParams {
   page?: number;
   pageSize?: number;
 }
+
+// ─── Phase 2 Analytics Types ──────────────────────────────────
+
+export interface AnalyticsFilterParams {
+  applicationIds?: string[];
+  from?: string;
+  to?: string;
+  interval?: string;
+}
+
+export interface VolumeAnalyticsParams extends Omit<LogSearchParams, 'page' | 'pageSize'> {
+  groupBy?: 'level' | 'app';
+  interval?: string;
+}
+
+export interface VolumeBucketDto {
+  timestamp: string;
+  total: number;
+  counts: Record<string, number>;
+}
+
+export interface VolumeAnalyticsResponse {
+  bucketSeconds: number;
+  from: string;
+  to: string;
+  groupBy: 'level' | 'app' | string;
+  totalEvents: number;
+  buckets: VolumeBucketDto[];
+}
+
+export interface ErrorRateSummaryDto {
+  totalRequests: number;
+  totalEvents: number;
+  totalErrors: number;
+  httpErrorCount: number;
+  errorRatePercent: number;
+}
+
+export interface ErrorRateBucketDto {
+  timestamp: string;
+  requests: number;
+  errors: number;
+  errorRatePercent: number;
+}
+
+export interface AppErrorBreakdownDto {
+  applicationId: string;
+  applicationName: string;
+  applicationSlug: string;
+  totalRequests: number;
+  totalErrors: number;
+  errorRatePercent: number;
+}
+
+export interface ErrorRateAnalyticsResponse {
+  bucketSeconds: number;
+  from: string;
+  to: string;
+  summary: ErrorRateSummaryDto;
+  timeline: ErrorRateBucketDto[];
+  byApplication: AppErrorBreakdownDto[];
+}
+
+export interface LatencySummaryDto {
+  sampleCount: number;
+  avgMs: number;
+  p50Ms: number;
+  p95Ms: number;
+  p99Ms: number;
+}
+
+export interface LatencyBucketDto {
+  timestamp: string;
+  count: number;
+  avgMs: number;
+  p50Ms: number;
+  p95Ms: number;
+  p99Ms: number;
+}
+
+export interface SlowEndpointDto {
+  applicationId: string;
+  applicationName: string;
+  applicationSlug: string;
+  httpMethod: string | null;
+  targetHost: string | null;
+  requestPath: string;
+  count: number;
+  errorCount: number;
+  avgMs: number;
+  p95Ms: number;
+  maxMs: number;
+}
+
+export interface LatencyAnalyticsResponse {
+  bucketSeconds: number;
+  from: string;
+  to: string;
+  summary: LatencySummaryDto;
+  timeline: LatencyBucketDto[];
+  slowestEndpoints: SlowEndpointDto[];
+  slowestDependencies: SlowEndpointDto[];
+}
+
+export interface ResourcePointDto {
+  timestamp: string;
+  cpuPercent: number;
+  workingSetMb: number;
+  gcHeapMb: number;
+  threadCount: number;
+  pendingWorkItems: number;
+  gen2Collections: number;
+}
+
+export interface AppResourceSeriesDto {
+  applicationId: string;
+  applicationName: string;
+  applicationSlug: string;
+  points: ResourcePointDto[];
+}
+
+export interface ResourceAnalyticsResponse {
+  from: string;
+  to: string;
+  series: AppResourceSeriesDto[];
+}
+
+export interface TopExceptionDto {
+  applicationId: string;
+  applicationName: string;
+  applicationSlug: string;
+  exceptionType: string;
+  requestPath: string | null;
+  sampleMessage: string | null;
+  count: number;
+  firstSeen: string;
+  lastSeen: string;
+}
+
+export interface TopExceptionsResponse {
+  from: string;
+  to: string;
+  items: TopExceptionDto[];
+}

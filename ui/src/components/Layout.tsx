@@ -1,4 +1,4 @@
-import { Activity, LogOut, Search, Server } from 'lucide-react';
+import { Activity, BarChart3, LogOut, Search, Server } from 'lucide-react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { clearAuth, getStoredUser } from '../api/client';
 
@@ -36,6 +36,19 @@ export function Layout() {
             >
               <Search className="w-4 h-4" />
               Log Explorer
+            </NavLink>
+            <NavLink
+              to="/analytics"
+              className={({ isActive }) =>
+                `px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-colors ${
+                  isActive
+                    ? 'bg-slate-800 text-emerald-400'
+                    : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/50'
+                }`
+              }
+            >
+              <BarChart3 className="w-4 h-4" />
+              Analytics
             </NavLink>
             <NavLink
               to="/applications"

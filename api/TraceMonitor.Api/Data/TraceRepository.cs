@@ -307,12 +307,8 @@ public sealed class TraceRepository
 
     // ─── Search & Trace Queries ────────────────────────────────────
 
-    public async Task<LogSearchResponse> SearchLogsAsync(LogSearchRequest req, CancellationToken ct = default)
+    private static (string WhereSql, DynamicParameters Params) BuildLogWhereClause(LogSearchRequest req)
     {
-        var page = Math.Max(1, req.Page);
-        var pageSize = Math.Clamp(req.PageSize, 10, 200);
-        var offset = (page - 1) * pageSize;
-
         var parsed = SearchQueryParser.Parse(req.Q);
         var where = new StringBuilder("WHERE 1=1");
         var p = new DynamicParameters();
@@ -425,6 +421,17 @@ public sealed class TraceRepository
             p.Add("FreeText", freeText);
             p.Add("LikeText", $"%{freeText}%");
         }
+
+        return (where.ToString(), p);
+    }
+
+    public async Task<LogSearchResponse> SearchLogsAsync(LogSearchRequest req, CancellationToken ct = default)
+    {
+        var page = Math.Max(1, req.Page);
+        var pageSize = Math.Clamp(req.PageSize, 10, 200);
+        var offset = (page - 1) * pageSize;
+
+        var (where, p) = BuildLogWhereClause(req);
 
         p.Add("Limit", pageSize);
         p.Add("Offset", offset);
@@ -547,6 +554,473 @@ public sealed class TraceRepository
             """;
         var rows = await conn.QueryAsync<LogSummaryDto>(sql, new { TraceId = traceId });
         return rows.ToList();
+    }
+
+    // ─── Analytics Queries (Phase 2) ───────────────────────────────
+
+    public async Task<VolumeAnalyticsResponse> GetVolumeAnalyticsAsync(
+        LogSearchRequest req,
+        string? groupBy = null,
+        string? interval = null,
+        CancellationToken ct = default)
+    {
+        var resolvedGroupBy = string.Equals(groupBy, "app", StringComparison.OrdinalIgnoreCase) ? "app" : "level";
+        var groupColumn = resolvedGroupBy == "app" ? "a.name" : "l.level";
+
+        var (where, p) = BuildLogWhereClause(req);
+        await using var conn = await _db.OpenConnectionAsync(ct);
+
+        DateTimeOffset resolvedFrom;
+        DateTimeOffset resolvedTo;
+        if (req.From.HasValue)
+        {
+            resolvedFrom = req.From.Value;
+            resolvedTo = req.To ?? DateTimeOffset.UtcNow;
+        }
+        else
+        {
+            var boundsSql = $"""
+                SELECT MIN(l.timestamp) AS MinTs, MAX(l.timestamp) AS MaxTs
+                FROM log_events l
+                INNER JOIN applications a ON a.id = l.application_id
+                {where};
+                """;
+            var bounds = await conn.QuerySingleAsync<(DateTimeOffset? MinTs, DateTimeOffset? MaxTs)>(boundsSql, p);
+            resolvedTo = req.To ?? bounds.MaxTs ?? DateTimeOffset.UtcNow;
+            resolvedFrom = bounds.MinTs ?? resolvedTo.AddHours(-24);
+        }
+
+        if (resolvedFrom > resolvedTo)
+        {
+            (resolvedFrom, resolvedTo) = (resolvedTo, resolvedFrom);
+        }
+
+        var bucketSeconds = AnalyticsBucketHelper.ResolveBucketSeconds(resolvedFrom, resolvedTo, interval);
+        var bucketExpr = AnalyticsBucketHelper.BuildBucketExpression("l.timestamp", bucketSeconds);
+
+        var sql = $"""
+            SELECT
+                {bucketExpr} AS Bucket,
+                {groupColumn} AS GroupKey,
+                COUNT(*) AS Count
+            FROM log_events l
+            INNER JOIN applications a ON a.id = l.application_id
+            {where}
+            GROUP BY 1, 2
+            ORDER BY 1 ASC;
+            """;
+
+        var rows = (await conn.QueryAsync<VolumeRow>(sql, p)).ToList();
+
+        var bucketMap = new Dictionary<DateTimeOffset, VolumeBucketDto>();
+
+        // Pre-populate zero buckets for a continuous time axis when span is reasonable
+        var startBucket = AnalyticsBucketHelper.FloorToBucket(resolvedFrom, bucketSeconds);
+        var endBucket = AnalyticsBucketHelper.FloorToBucket(resolvedTo, bucketSeconds);
+        var estimatedBuckets = (long)((endBucket - startBucket).TotalSeconds / bucketSeconds) + 1;
+        if (estimatedBuckets is > 0 and <= 180)
+        {
+            for (var ts = startBucket; ts <= endBucket; ts = ts.AddSeconds(bucketSeconds))
+            {
+                bucketMap[ts] = new VolumeBucketDto { Timestamp = ts };
+            }
+        }
+
+        long totalEvents = 0;
+        foreach (var row in rows)
+        {
+            var key = AnalyticsBucketHelper.FloorToBucket(row.Bucket.ToUniversalTime(), bucketSeconds);
+            if (!bucketMap.TryGetValue(key, out var dto))
+            {
+                dto = new VolumeBucketDto { Timestamp = key };
+                bucketMap[key] = dto;
+            }
+
+            var groupKey = string.IsNullOrWhiteSpace(row.GroupKey) ? "Unknown" : row.GroupKey;
+            dto.Counts[groupKey] = dto.Counts.GetValueOrDefault(groupKey) + row.Count;
+            dto.Total += row.Count;
+            totalEvents += row.Count;
+        }
+
+        return new VolumeAnalyticsResponse
+        {
+            BucketSeconds = bucketSeconds,
+            From = resolvedFrom,
+            To = resolvedTo,
+            GroupBy = resolvedGroupBy,
+            TotalEvents = totalEvents,
+            Buckets = bucketMap.Values.OrderBy(b => b.Timestamp).ToList()
+        };
+    }
+
+    public async Task<ErrorRateAnalyticsResponse> GetErrorRateAnalyticsAsync(
+        Guid[]? applicationIds,
+        DateTimeOffset? from,
+        DateTimeOffset? to,
+        string? interval = null,
+        CancellationToken ct = default)
+    {
+        var (resolvedFrom, resolvedTo) = AnalyticsBucketHelper.ResolveTimeWindow(from, to, TimeSpan.FromHours(24));
+        var bucketSeconds = AnalyticsBucketHelper.ResolveBucketSeconds(resolvedFrom, resolvedTo, interval);
+        var bucketExpr = AnalyticsBucketHelper.BuildBucketExpression("l.timestamp", bucketSeconds);
+
+        var (where, p) = BuildAnalyticsWhereClause(resolvedFrom, resolvedTo, applicationIds, "l");
+
+        const string isRequestSql = "(l.event_type = 'Request' OR (l.event_type = 'Exception' AND l.http_method IS NOT NULL))";
+        const string isErrorSql = "(l.level IN ('Error', 'Critical') OR l.status_code >= 500)";
+
+        var summarySql = $"""
+            SELECT
+                COUNT(*) FILTER (WHERE {isRequestSql}) AS TotalRequests,
+                COUNT(*) AS TotalEvents,
+                COUNT(*) FILTER (WHERE {isErrorSql}) AS TotalErrors,
+                COUNT(*) FILTER (WHERE {isRequestSql} AND {isErrorSql}) AS HttpErrorCount
+            FROM log_events l
+            {where};
+            """;
+
+        var timelineSql = $"""
+            SELECT
+                {bucketExpr} AS Timestamp,
+                COUNT(*) FILTER (WHERE {isRequestSql}) AS Requests,
+                COUNT(*) FILTER (WHERE {isErrorSql}) AS Errors
+            FROM log_events l
+            {where}
+            GROUP BY 1
+            ORDER BY 1 ASC;
+            """;
+
+        var byAppSql = $"""
+            SELECT
+                a.id AS ApplicationId,
+                a.name AS ApplicationName,
+                a.slug AS ApplicationSlug,
+                COUNT(*) FILTER (WHERE {isRequestSql}) AS TotalRequests,
+                COUNT(*) FILTER (WHERE {isErrorSql}) AS TotalErrors,
+                COUNT(*) FILTER (WHERE {isRequestSql} AND {isErrorSql}) AS HttpErrorCount
+            FROM log_events l
+            INNER JOIN applications a ON a.id = l.application_id
+            {where}
+            GROUP BY a.id, a.name, a.slug
+            ORDER BY TotalErrors DESC, TotalRequests DESC, a.name ASC;
+            """;
+
+        await using var conn = await _db.OpenConnectionAsync(ct);
+        var summaryRow = await conn.QuerySingleAsync<ErrorRateSummaryDto>(summarySql, p);
+        summaryRow.ErrorRatePercent = ComputeErrorRate(summaryRow.TotalRequests, summaryRow.HttpErrorCount, summaryRow.TotalEvents, summaryRow.TotalErrors);
+
+        var rawTimeline = (await conn.QueryAsync<ErrorRateBucketDto>(timelineSql, p)).ToList();
+        var timelineMap = new Dictionary<DateTimeOffset, ErrorRateBucketDto>();
+
+        var startBucket = AnalyticsBucketHelper.FloorToBucket(resolvedFrom, bucketSeconds);
+        var endBucket = AnalyticsBucketHelper.FloorToBucket(resolvedTo, bucketSeconds);
+        var estimatedBuckets = (long)((endBucket - startBucket).TotalSeconds / bucketSeconds) + 1;
+        if (estimatedBuckets is > 0 and <= 180)
+        {
+            for (var ts = startBucket; ts <= endBucket; ts = ts.AddSeconds(bucketSeconds))
+            {
+                timelineMap[ts] = new ErrorRateBucketDto { Timestamp = ts };
+            }
+        }
+
+        foreach (var row in rawTimeline)
+        {
+            var key = AnalyticsBucketHelper.FloorToBucket(row.Timestamp.ToUniversalTime(), bucketSeconds);
+            row.Timestamp = key;
+            row.ErrorRatePercent = row.Requests > 0
+                ? Math.Round(Math.Min(100.0, row.Errors * 100.0 / row.Requests), 2)
+                : 0;
+            timelineMap[key] = row;
+        }
+
+        var rawApps = (await conn.QueryAsync<AppErrorRow>(byAppSql, p)).ToList();
+        var byApp = rawApps.Select(r => new AppErrorBreakdownDto
+        {
+            ApplicationId = r.ApplicationId,
+            ApplicationName = r.ApplicationName,
+            ApplicationSlug = r.ApplicationSlug,
+            TotalRequests = r.TotalRequests,
+            TotalErrors = r.TotalErrors,
+            ErrorRatePercent = ComputeErrorRate(r.TotalRequests, r.HttpErrorCount, r.TotalRequests + r.TotalErrors, r.TotalErrors)
+        }).ToList();
+
+        return new ErrorRateAnalyticsResponse
+        {
+            BucketSeconds = bucketSeconds,
+            From = resolvedFrom,
+            To = resolvedTo,
+            Summary = summaryRow,
+            Timeline = timelineMap.Values.OrderBy(t => t.Timestamp).ToList(),
+            ByApplication = byApp
+        };
+    }
+
+    public async Task<LatencyAnalyticsResponse> GetLatencyAnalyticsAsync(
+        Guid[]? applicationIds,
+        DateTimeOffset? from,
+        DateTimeOffset? to,
+        string? interval = null,
+        int top = 10,
+        CancellationToken ct = default)
+    {
+        var (resolvedFrom, resolvedTo) = AnalyticsBucketHelper.ResolveTimeWindow(from, to, TimeSpan.FromHours(24));
+        var bucketSeconds = AnalyticsBucketHelper.ResolveBucketSeconds(resolvedFrom, resolvedTo, interval);
+        var bucketExpr = AnalyticsBucketHelper.BuildBucketExpression("l.timestamp", bucketSeconds);
+        var limit = Math.Clamp(top, 1, 50);
+
+        var (where, p) = BuildAnalyticsWhereClause(resolvedFrom, resolvedTo, applicationIds, "l");
+        p.Add("TopLimit", limit);
+
+        const string incomingFilter = "(l.event_type = 'Request' OR (l.event_type = 'Exception' AND l.http_method IS NOT NULL)) AND l.elapsed_ms IS NOT NULL";
+
+        var summarySql = $"""
+            SELECT
+                COUNT(*) AS SampleCount,
+                COALESCE(ROUND(AVG(l.elapsed_ms)::numeric, 2), 0)::double precision AS AvgMs,
+                COALESCE(ROUND((percentile_cont(0.50) WITHIN GROUP (ORDER BY l.elapsed_ms))::numeric, 2), 0)::double precision AS P50Ms,
+                COALESCE(ROUND((percentile_cont(0.95) WITHIN GROUP (ORDER BY l.elapsed_ms))::numeric, 2), 0)::double precision AS P95Ms,
+                COALESCE(ROUND((percentile_cont(0.99) WITHIN GROUP (ORDER BY l.elapsed_ms))::numeric, 2), 0)::double precision AS P99Ms
+            FROM log_events l
+            {where} AND {incomingFilter};
+            """;
+
+        var timelineSql = $"""
+            SELECT
+                {bucketExpr} AS Timestamp,
+                COUNT(*) AS Count,
+                COALESCE(ROUND(AVG(l.elapsed_ms)::numeric, 2), 0)::double precision AS AvgMs,
+                COALESCE(ROUND((percentile_cont(0.50) WITHIN GROUP (ORDER BY l.elapsed_ms))::numeric, 2), 0)::double precision AS P50Ms,
+                COALESCE(ROUND((percentile_cont(0.95) WITHIN GROUP (ORDER BY l.elapsed_ms))::numeric, 2), 0)::double precision AS P95Ms,
+                COALESCE(ROUND((percentile_cont(0.99) WITHIN GROUP (ORDER BY l.elapsed_ms))::numeric, 2), 0)::double precision AS P99Ms
+            FROM log_events l
+            {where} AND {incomingFilter}
+            GROUP BY 1
+            ORDER BY 1 ASC;
+            """;
+
+        var slowestEndpointsSql = $"""
+            SELECT
+                a.id AS ApplicationId,
+                a.name AS ApplicationName,
+                a.slug AS ApplicationSlug,
+                l.http_method AS HttpMethod,
+                NULL::text AS TargetHost,
+                l.request_path AS RequestPath,
+                COUNT(*) AS Count,
+                COUNT(*) FILTER (WHERE l.status_code >= 500 OR l.level IN ('Error', 'Critical')) AS ErrorCount,
+                COALESCE(ROUND(AVG(l.elapsed_ms)::numeric, 2), 0)::double precision AS AvgMs,
+                COALESCE(ROUND((percentile_cont(0.95) WITHIN GROUP (ORDER BY l.elapsed_ms))::numeric, 2), 0)::double precision AS P95Ms,
+                COALESCE(ROUND(MAX(l.elapsed_ms)::numeric, 2), 0)::double precision AS MaxMs
+            FROM log_events l
+            INNER JOIN applications a ON a.id = l.application_id
+            {where} AND {incomingFilter} AND l.request_path IS NOT NULL
+            GROUP BY a.id, a.name, a.slug, l.http_method, l.request_path
+            ORDER BY P95Ms DESC, AvgMs DESC
+            LIMIT @TopLimit;
+            """;
+
+        var slowestDependenciesSql = $"""
+            SELECT
+                a.id AS ApplicationId,
+                a.name AS ApplicationName,
+                a.slug AS ApplicationSlug,
+                l.http_method AS HttpMethod,
+                l.target_host AS TargetHost,
+                COALESCE(l.request_path, '/') AS RequestPath,
+                COUNT(*) AS Count,
+                COUNT(*) FILTER (WHERE l.status_code >= 500 OR l.level IN ('Error', 'Critical')) AS ErrorCount,
+                COALESCE(ROUND(AVG(l.elapsed_ms)::numeric, 2), 0)::double precision AS AvgMs,
+                COALESCE(ROUND((percentile_cont(0.95) WITHIN GROUP (ORDER BY l.elapsed_ms))::numeric, 2), 0)::double precision AS P95Ms,
+                COALESCE(ROUND(MAX(l.elapsed_ms)::numeric, 2), 0)::double precision AS MaxMs
+            FROM log_events l
+            INNER JOIN applications a ON a.id = l.application_id
+            {where} AND l.event_type = 'OutgoingHttp' AND l.elapsed_ms IS NOT NULL
+            GROUP BY a.id, a.name, a.slug, l.target_host, l.http_method, COALESCE(l.request_path, '/')
+            ORDER BY P95Ms DESC, AvgMs DESC
+            LIMIT @TopLimit;
+            """;
+
+        await using var conn = await _db.OpenConnectionAsync(ct);
+        var summary = await conn.QuerySingleAsync<LatencySummaryDto>(summarySql, p);
+        var timeline = (await conn.QueryAsync<LatencyBucketDto>(timelineSql, p)).ToList();
+        var slowestEndpoints = (await conn.QueryAsync<SlowEndpointDto>(slowestEndpointsSql, p)).ToList();
+        var slowestDependencies = (await conn.QueryAsync<SlowEndpointDto>(slowestDependenciesSql, p)).ToList();
+
+        return new LatencyAnalyticsResponse
+        {
+            BucketSeconds = bucketSeconds,
+            From = resolvedFrom,
+            To = resolvedTo,
+            Summary = summary,
+            Timeline = timeline,
+            SlowestEndpoints = slowestEndpoints,
+            SlowestDependencies = slowestDependencies
+        };
+    }
+
+    public async Task<ResourceAnalyticsResponse> GetResourceAnalyticsAsync(
+        Guid[]? applicationIds,
+        DateTimeOffset? from,
+        DateTimeOffset? to,
+        CancellationToken ct = default)
+    {
+        var (resolvedFrom, resolvedTo) = AnalyticsBucketHelper.ResolveTimeWindow(from, to, TimeSpan.FromHours(24));
+        var (where, p) = BuildAnalyticsWhereClause(resolvedFrom, resolvedTo, applicationIds, "m");
+
+        var sql = $"""
+            SELECT
+                a.id AS ApplicationId,
+                a.name AS ApplicationName,
+                a.slug AS ApplicationSlug,
+                m.timestamp AS Timestamp,
+                m.cpu_percent AS CpuPercent,
+                m.working_set_mb AS WorkingSetMb,
+                m.gc_heap_mb AS GcHeapMb,
+                m.thread_count AS ThreadCount,
+                m.pending_work_items AS PendingWorkItems,
+                m.gen2_collections AS Gen2Collections
+            FROM app_metrics m
+            INNER JOIN applications a ON a.id = m.application_id
+            {where}
+            ORDER BY a.name ASC, m.timestamp ASC;
+            """;
+
+        await using var conn = await _db.OpenConnectionAsync(ct);
+        var rows = (await conn.QueryAsync<ResourceMetricRow>(sql, p)).ToList();
+
+        var series = rows
+            .GroupBy(r => (r.ApplicationId, r.ApplicationName, r.ApplicationSlug))
+            .Select(g => new AppResourceSeriesDto
+            {
+                ApplicationId = g.Key.ApplicationId,
+                ApplicationName = g.Key.ApplicationName,
+                ApplicationSlug = g.Key.ApplicationSlug,
+                Points = g.Select(r => new ResourcePointDto
+                {
+                    Timestamp = r.Timestamp,
+                    CpuPercent = Math.Round(r.CpuPercent, 2),
+                    WorkingSetMb = Math.Round(r.WorkingSetMb, 2),
+                    GcHeapMb = Math.Round(r.GcHeapMb, 2),
+                    ThreadCount = r.ThreadCount,
+                    PendingWorkItems = r.PendingWorkItems,
+                    Gen2Collections = r.Gen2Collections
+                }).ToList()
+            })
+            .ToList();
+
+        return new ResourceAnalyticsResponse
+        {
+            From = resolvedFrom,
+            To = resolvedTo,
+            Series = series
+        };
+    }
+
+    public async Task<TopExceptionsResponse> GetTopExceptionsAsync(
+        Guid[]? applicationIds,
+        DateTimeOffset? from,
+        DateTimeOffset? to,
+        int limit = 15,
+        CancellationToken ct = default)
+    {
+        var (resolvedFrom, resolvedTo) = AnalyticsBucketHelper.ResolveTimeWindow(from, to, TimeSpan.FromHours(24));
+        var (where, p) = BuildAnalyticsWhereClause(resolvedFrom, resolvedTo, applicationIds, "l");
+        p.Add("Limit", Math.Clamp(limit, 1, 50));
+
+        var sql = $"""
+            SELECT
+                a.id AS ApplicationId,
+                a.name AS ApplicationName,
+                a.slug AS ApplicationSlug,
+                l.exception_type AS ExceptionType,
+                l.request_path AS RequestPath,
+                MAX(l.exception_message) AS SampleMessage,
+                COUNT(*) AS Count,
+                MIN(l.timestamp) AS FirstSeen,
+                MAX(l.timestamp) AS LastSeen
+            FROM log_events l
+            INNER JOIN applications a ON a.id = l.application_id
+            {where} AND l.exception_type IS NOT NULL AND l.exception_type <> ''
+            GROUP BY a.id, a.name, a.slug, l.exception_type, l.request_path
+            ORDER BY Count DESC, LastSeen DESC
+            LIMIT @Limit;
+            """;
+
+        await using var conn = await _db.OpenConnectionAsync(ct);
+        var items = (await conn.QueryAsync<TopExceptionDto>(sql, p)).ToList();
+
+        return new TopExceptionsResponse
+        {
+            From = resolvedFrom,
+            To = resolvedTo,
+            Items = items
+        };
+    }
+
+    private static (string WhereSql, DynamicParameters Params) BuildAnalyticsWhereClause(
+        DateTimeOffset from,
+        DateTimeOffset to,
+        Guid[]? applicationIds,
+        string alias)
+    {
+        var where = new StringBuilder($"WHERE {alias}.timestamp >= @From AND {alias}.timestamp <= @To");
+        var p = new DynamicParameters();
+        p.Add("From", from.UtcDateTime);
+        p.Add("To", to.UtcDateTime);
+
+        if (applicationIds is { Length: > 0 })
+        {
+            where.Append($" AND {alias}.application_id = ANY(@ApplicationIds)");
+            p.Add("ApplicationIds", applicationIds);
+        }
+
+        return (where.ToString(), p);
+    }
+
+    private static double ComputeErrorRate(long totalRequests, long httpErrorCount, long totalEvents, long totalErrors)
+    {
+        if (totalRequests > 0)
+        {
+            return Math.Round(httpErrorCount * 100.0 / totalRequests, 2);
+        }
+
+        if (totalEvents > 0)
+        {
+            return Math.Round(totalErrors * 100.0 / totalEvents, 2);
+        }
+
+        return 0;
+    }
+
+    private sealed class VolumeRow
+    {
+        public DateTimeOffset Bucket { get; set; }
+        public string? GroupKey { get; set; }
+        public long Count { get; set; }
+    }
+
+    private sealed class AppErrorRow
+    {
+        public Guid ApplicationId { get; set; }
+        public string ApplicationName { get; set; } = string.Empty;
+        public string ApplicationSlug { get; set; } = string.Empty;
+        public long TotalRequests { get; set; }
+        public long TotalErrors { get; set; }
+        public long HttpErrorCount { get; set; }
+    }
+
+    private sealed class ResourceMetricRow
+    {
+        public Guid ApplicationId { get; set; }
+        public string ApplicationName { get; set; } = string.Empty;
+        public string ApplicationSlug { get; set; } = string.Empty;
+        public DateTimeOffset Timestamp { get; set; }
+        public double CpuPercent { get; set; }
+        public double WorkingSetMb { get; set; }
+        public double GcHeapMb { get; set; }
+        public int ThreadCount { get; set; }
+        public long PendingWorkItems { get; set; }
+        public int Gen2Collections { get; set; }
     }
 
     // ─── Retention ─────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import {
   ChevronLeft,
   ChevronRight,
@@ -10,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiClient } from '../api/client';
+import { EventVolumeHistogram } from '../components/EventVolumeHistogram';
 import { LogDetailDrawer } from '../components/LogDetailDrawer';
 import type { LogSummaryDto } from '../types/telemetry';
 
@@ -34,17 +36,38 @@ const EVENT_TYPES = ['Request', 'OutgoingHttp', 'Exception', 'Log', 'Lifecycle']
 const STATUS_BUCKETS = ['2xx', '4xx', '5xx'];
 
 export function LogExplorerPage() {
-  const [searchInput, setSearchInput] = useState('');
-  const [submittedQuery, setSubmittedQuery] = useState('');
-  const [selectedAppIds, setSelectedAppIds] = useState<string[]>([]);
-  const [selectedLevels, setSelectedLevels] = useState<string[]>([]);
-  const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>([]);
-  const [statusRange, setStatusRange] = useState<string>('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialQ = searchParams.get('q') ?? '';
+  const initialAppIds = searchParams.get('appId') ? searchParams.get('appId')!.split(',').filter(Boolean) : [];
+  const initialLevels = searchParams.get('level') ? searchParams.get('level')!.split(',').filter(Boolean) : [];
+  const initialEventTypes = searchParams.get('eventType')
+    ? searchParams.get('eventType')!.split(',').filter(Boolean)
+    : [];
+  const initialFrom = searchParams.get('from');
+  const initialTo = searchParams.get('to');
+
+  const [searchInput, setSearchInput] = useState(initialQ);
+  const [submittedQuery, setSubmittedQuery] = useState(initialQ);
+  const [selectedAppIds, setSelectedAppIds] = useState<string[]>(initialAppIds);
+  const [selectedLevels, setSelectedLevels] = useState<string[]>(initialLevels);
+  const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>(initialEventTypes);
+  const [statusRange, setStatusRange] = useState<string>(searchParams.get('statusRange') ?? '');
   const [timeMinutes, setTimeMinutes] = useState<number>(60);
+  const [customRange, setCustomRange] = useState<{ from: string; to: string } | null>(
+    initialFrom && initialTo ? { from: initialFrom, to: initialTo } : null
+  );
   const [refreshMs, setRefreshMs] = useState<number>(0);
   const [page, setPage] = useState(1);
   const [selectedLogId, setSelectedLogId] = useState<number | null>(null);
   const rowRefs = useRef<Map<number, HTMLTableRowElement>>(new Map());
+
+  // Clear one-shot drill-down query params after hydrating state so manual edits don't feel stuck
+  useEffect(() => {
+    if (searchParams.toString().length > 0) {
+      setSearchParams({}, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const { data: apps = [] } = useQuery({
     queryKey: ['applications'],
@@ -52,10 +75,25 @@ export function LogExplorerPage() {
     staleTime: 60_000,
   });
 
-  const fromIso = useMemo(() => {
-    if (timeMinutes === 0) return undefined;
-    return new Date(Date.now() - timeMinutes * 60_000).toISOString();
-  }, [timeMinutes, page, submittedQuery, selectedAppIds, selectedLevels, selectedEventTypes, statusRange]);
+  const { fromIso, toIso } = useMemo(() => {
+    if (customRange) {
+      return { fromIso: customRange.from, toIso: customRange.to };
+    }
+    if (timeMinutes === 0) return { fromIso: undefined, toIso: undefined };
+    return {
+      fromIso: new Date(Date.now() - timeMinutes * 60_000).toISOString(),
+      toIso: undefined,
+    };
+  }, [
+    customRange,
+    timeMinutes,
+    page,
+    submittedQuery,
+    selectedAppIds,
+    selectedLevels,
+    selectedEventTypes,
+    statusRange,
+  ]);
 
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: [
@@ -66,6 +104,8 @@ export function LogExplorerPage() {
       selectedEventTypes,
       statusRange,
       timeMinutes,
+      customRange?.from ?? null,
+      customRange?.to ?? null,
       page,
     ],
     queryFn: () =>
@@ -76,11 +116,57 @@ export function LogExplorerPage() {
         eventTypes: selectedEventTypes.length ? selectedEventTypes : undefined,
         statusRange: statusRange || undefined,
         from: fromIso,
+        to: toIso,
         page,
         pageSize: 50,
       }),
-    refetchInterval: refreshMs > 0 ? refreshMs : false,
+    refetchInterval: refreshMs > 0 && !customRange ? refreshMs : false,
   });
+
+  const {
+    data: volumeData,
+    isLoading: isVolumeLoading,
+    refetch: refetchVolume,
+  } = useQuery({
+    queryKey: [
+      'logs-volume',
+      submittedQuery,
+      selectedAppIds,
+      selectedLevels,
+      selectedEventTypes,
+      statusRange,
+      timeMinutes,
+      customRange?.from ?? null,
+      customRange?.to ?? null,
+    ],
+    queryFn: () =>
+      apiClient.getVolumeAnalytics({
+        q: submittedQuery || undefined,
+        applicationIds: selectedAppIds.length ? selectedAppIds : undefined,
+        levels: selectedLevels.length ? selectedLevels : undefined,
+        eventTypes: selectedEventTypes.length ? selectedEventTypes : undefined,
+        statusRange: statusRange || undefined,
+        from: fromIso,
+        to: toIso,
+        groupBy: 'level',
+      }),
+    refetchInterval: refreshMs > 0 && !customRange ? refreshMs : false,
+  });
+
+  const handleRefresh = () => {
+    refetch();
+    refetchVolume();
+  };
+
+  const handleZoomRange = (from: string, to: string) => {
+    setCustomRange({ from, to });
+    setPage(1);
+  };
+
+  const handleResetZoom = () => {
+    setCustomRange(null);
+    setPage(1);
+  };
 
   const handleSearchSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -100,6 +186,7 @@ export function LogExplorerPage() {
     setSelectedLevels([]);
     setSelectedEventTypes([]);
     setStatusRange('');
+    setCustomRange(null);
     setPage(1);
   };
 
@@ -108,7 +195,8 @@ export function LogExplorerPage() {
     selectedAppIds.length > 0 ||
     selectedLevels.length > 0 ||
     selectedEventTypes.length > 0 ||
-    Boolean(statusRange);
+    Boolean(statusRange) ||
+    Boolean(customRange);
 
   const totalPages = data ? Math.max(1, Math.ceil(data.totalCount / data.pageSize)) : 1;
 
@@ -197,13 +285,22 @@ export function LogExplorerPage() {
         <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1.5 text-xs">
           <Clock className="w-3.5 h-3.5 text-slate-400" />
           <select
-            value={timeMinutes}
+            value={customRange ? -1 : timeMinutes}
             onChange={(e) => {
-              setTimeMinutes(Number(e.target.value));
-              setPage(1);
+              const val = Number(e.target.value);
+              if (val >= 0) {
+                setCustomRange(null);
+                setTimeMinutes(val);
+                setPage(1);
+              }
             }}
             className="bg-transparent text-slate-200 focus:outline-none cursor-pointer"
           >
+            {customRange && (
+              <option value={-1} className="bg-slate-900">
+                Custom Zoom
+              </option>
+            )}
             {TIME_PRESETS.map((p) => (
               <option key={p.label} value={p.minutes} className="bg-slate-900">
                 {p.label}
@@ -230,7 +327,7 @@ export function LogExplorerPage() {
 
         {/* Manual Refresh */}
         <button
-          onClick={() => refetch()}
+          onClick={handleRefresh}
           className="p-2 rounded-md bg-slate-900 border border-slate-700 hover:bg-slate-800 text-slate-300 cursor-pointer"
           title="Refresh now"
         >
@@ -341,6 +438,15 @@ export function LogExplorerPage() {
 
         {/* Log Table Area */}
         <div className="flex-1 flex flex-col min-w-0">
+          {/* Inline Event Volume Histogram (Splunk-style zoom) */}
+          <EventVolumeHistogram
+            data={volumeData}
+            isLoading={isVolumeLoading}
+            isZoomed={Boolean(customRange)}
+            onZoomRange={handleZoomRange}
+            onResetZoom={handleResetZoom}
+          />
+
           {/* Status Summary Bar */}
           <div className="px-4 py-2 border-b border-slate-800/80 bg-slate-950 flex items-center justify-between text-xs text-slate-400">
             <div>
