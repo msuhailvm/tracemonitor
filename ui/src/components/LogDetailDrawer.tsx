@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Check, Copy, GitBranch, X } from 'lucide-react';
+import { Check, Copy, FileText, GitBranch, X } from 'lucide-react';
 import { apiClient } from '../api/client';
 import type { LogSummaryDto } from '../types/telemetry';
 
@@ -35,7 +35,11 @@ export function LogDetailDrawer({ logId, onClose, onSelectLog }: LogDetailDrawer
     enabled: activeTab === 'trace' && Boolean(detail?.traceId),
   });
 
-  if (logId === null) return null;
+  useEffect(() => {
+    if (activeTab === 'trace' && detail && !detail.traceId) {
+      setActiveTab('details');
+    }
+  }, [activeTab, detail]);
 
   const copyText = (key: string, value: string) => {
     navigator.clipboard.writeText(value);
@@ -43,34 +47,54 @@ export function LogDetailDrawer({ logId, onClose, onSelectLog }: LogDetailDrawer
     setTimeout(() => setCopiedKey(null), 1800);
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-[1px]" onClick={onClose}>
-      <div
-        className="w-full max-w-3xl bg-slate-900 border-l border-slate-800 h-full flex flex-col shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <span className="font-semibold text-emerald-400">{detail?.applicationName ?? 'Loading...'}</span>
-              <span>•</span>
-              <span>{detail?.eventType}</span>
-              <span>•</span>
-              <span className="font-mono">{detail ? new Date(detail.timestamp).toLocaleString() : ''}</span>
-            </div>
-            <h2 className="text-sm font-medium text-slate-100 truncate mt-1">
-              {detail?.message || detail?.requestPath || `Log #${logId}`}
-            </h2>
-          </div>
-
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+  if (logId === null) {
+    return (
+      <aside className="w-[768px] max-w-3xl shrink-0 bg-slate-900/70 border-l border-slate-800 h-full flex flex-col items-center justify-center p-8 text-center">
+        <div className="w-12 h-12 rounded-xl bg-slate-800/80 border border-slate-700/80 flex items-center justify-center text-slate-400 mb-4">
+          <FileText className="w-6 h-6" />
         </div>
+        <h2 className="text-sm font-medium text-slate-200">No log selected</h2>
+        <p className="text-xs text-slate-400 mt-1.5 max-w-xs leading-relaxed">
+          Click any row in the log table to inspect its details, headers, payloads, and correlated trace.
+        </p>
+        <div className="mt-4 flex items-center gap-2 text-[11px] text-slate-500">
+          <kbd className="px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 font-mono text-slate-400">
+            ↑
+          </kbd>
+          <kbd className="px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 font-mono text-slate-400">
+            ↓
+          </kbd>
+          <span>Navigate rows</span>
+        </div>
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="w-[768px] max-w-3xl shrink-0 bg-slate-900 border-l border-slate-800 h-full flex flex-col">
+      {/* Header */}
+      <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <span className="font-semibold text-emerald-400">{detail?.applicationName ?? 'Loading...'}</span>
+            <span>•</span>
+            <span>{detail?.eventType}</span>
+            <span>•</span>
+            <span className="font-mono">{detail ? new Date(detail.timestamp).toLocaleString() : ''}</span>
+          </div>
+          <h2 className="text-sm font-medium text-slate-100 truncate mt-1">
+            {detail?.message || detail?.requestPath || `Log #${logId}`}
+          </h2>
+        </div>
+
+        <button
+          onClick={onClose}
+          title="Clear selection (Esc)"
+          className="p-1.5 rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
 
         {/* Tabs */}
         <div className="px-5 border-b border-slate-800 flex items-center gap-4 text-sm">
@@ -290,8 +314,7 @@ export function LogDetailDrawer({ logId, onClose, onSelectLog }: LogDetailDrawer
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </aside>
   );
 }
 

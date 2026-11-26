@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ChevronLeft,
@@ -44,6 +44,7 @@ export function LogExplorerPage() {
   const [refreshMs, setRefreshMs] = useState<number>(0);
   const [page, setPage] = useState(1);
   const [selectedLogId, setSelectedLogId] = useState<number | null>(null);
+  const rowRefs = useRef<Map<number, HTMLTableRowElement>>(new Map());
 
   const { data: apps = [] } = useQuery({
     queryKey: ['applications'],
@@ -111,8 +112,53 @@ export function LogExplorerPage() {
 
   const totalPages = data ? Math.max(1, Math.ceil(data.totalCount / data.pageSize)) : 1;
 
+  useEffect(() => {
+    const items = data?.items ?? [];
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        if (selectedLogId !== null) {
+          e.preventDefault();
+          setSelectedLogId(null);
+        }
+        return;
+      }
+
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      if (items.length === 0) return;
+
+      e.preventDefault();
+      const currentIndex = selectedLogId !== null ? items.findIndex((item) => item.id === selectedLogId) : -1;
+
+      let nextIndex: number;
+      if (e.key === 'ArrowDown') {
+        nextIndex = currentIndex === -1 ? 0 : Math.min(items.length - 1, currentIndex + 1);
+      } else {
+        nextIndex = currentIndex === -1 ? items.length - 1 : Math.max(0, currentIndex - 1);
+      }
+
+      const nextId = items[nextIndex].id;
+      setSelectedLogId(nextId);
+      rowRefs.current.get(nextId)?.scrollIntoView({ block: 'nearest' });
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [data?.items, selectedLogId]);
+
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="h-[calc(100vh-3.5rem)] flex flex-col overflow-hidden">
       {/* Top Search & Controls Bar */}
       <div className="border-b border-slate-800 bg-slate-900/50 px-4 py-3 flex flex-wrap items-center gap-3">
         <form onSubmit={handleSearchSubmit} className="flex-1 min-w-[260px] flex items-center gap-2">
@@ -195,16 +241,16 @@ export function LogExplorerPage() {
       {/* Main Split: Facet Sidebar + Log Stream */}
       <div className="flex-1 flex min-h-0">
         {/* Left Facet Sidebar */}
-        <aside className="w-60 shrink-0 border-r border-slate-800 bg-slate-900/30 p-4 space-y-5 overflow-y-auto hidden md:block">
+        <aside className="w-64 shrink-0 border-r border-slate-800 bg-slate-900/30 p-5 space-y-6 overflow-y-auto hidden md:block text-sm">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
-              <Filter className="w-3.5 h-3.5" />
+            <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-slate-400">
+              <Filter className="w-4 h-4" />
               Facets
             </div>
             {hasActiveFilters && (
               <button
                 onClick={clearAllFilters}
-                className="text-[11px] text-emerald-400 hover:underline cursor-pointer"
+                className="text-xs text-emerald-400 hover:underline cursor-pointer"
               >
                 Clear all
               </button>
@@ -214,18 +260,18 @@ export function LogExplorerPage() {
           {/* Applications */}
           <FacetGroup title="Applications">
             {apps.length === 0 ? (
-              <p className="text-xs text-slate-500">No apps registered yet.</p>
+              <p className="text-sm text-slate-500">No apps registered yet.</p>
             ) : (
               apps.map((app) => (
                 <label
                   key={app.id}
-                  className="flex items-center gap-2 text-xs text-slate-300 hover:text-white cursor-pointer py-0.5"
+                  className="flex items-center gap-2.5 text-sm text-slate-300 hover:text-white cursor-pointer py-1"
                 >
                   <input
                     type="checkbox"
                     checked={selectedAppIds.includes(app.id)}
                     onChange={() => toggleItem(selectedAppIds, app.id, setSelectedAppIds)}
-                    className="rounded border-slate-700 bg-slate-950 accent-emerald-500"
+                    className="w-4 h-4 rounded border-slate-700 bg-slate-950 accent-emerald-500"
                   />
                   <span className="truncate">{app.name}</span>
                 </label>
@@ -238,13 +284,13 @@ export function LogExplorerPage() {
             {LEVELS.map((lvl) => (
               <label
                 key={lvl}
-                className="flex items-center gap-2 text-xs text-slate-300 hover:text-white cursor-pointer py-0.5"
+                className="flex items-center gap-2.5 text-sm text-slate-300 hover:text-white cursor-pointer py-1"
               >
                 <input
                   type="checkbox"
                   checked={selectedLevels.includes(lvl)}
                   onChange={() => toggleItem(selectedLevels, lvl, setSelectedLevels)}
-                  className="rounded border-slate-700 bg-slate-950 accent-emerald-500"
+                  className="w-4 h-4 rounded border-slate-700 bg-slate-950 accent-emerald-500"
                 />
                 <LevelDot level={lvl} />
                 <span>{lvl}</span>
@@ -257,13 +303,13 @@ export function LogExplorerPage() {
             {EVENT_TYPES.map((t) => (
               <label
                 key={t}
-                className="flex items-center gap-2 text-xs text-slate-300 hover:text-white cursor-pointer py-0.5"
+                className="flex items-center gap-2.5 text-sm text-slate-300 hover:text-white cursor-pointer py-1"
               >
                 <input
                   type="checkbox"
                   checked={selectedEventTypes.includes(t)}
                   onChange={() => toggleItem(selectedEventTypes, t, setSelectedEventTypes)}
-                  className="rounded border-slate-700 bg-slate-950 accent-emerald-500"
+                  className="w-4 h-4 rounded border-slate-700 bg-slate-950 accent-emerald-500"
                 />
                 <span>{t}</span>
               </label>
@@ -272,7 +318,7 @@ export function LogExplorerPage() {
 
           {/* HTTP Status */}
           <FacetGroup title="HTTP Status">
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-2">
               {STATUS_BUCKETS.map((bucket) => (
                 <button
                   key={bucket}
@@ -280,7 +326,7 @@ export function LogExplorerPage() {
                     setPage(1);
                     setStatusRange(statusRange === bucket ? '' : bucket);
                   }}
-                  className={`px-2.5 py-1 rounded text-xs font-mono border transition-colors cursor-pointer ${
+                  className={`px-3 py-1.5 rounded text-sm font-mono border transition-colors cursor-pointer ${
                     statusRange === bucket
                       ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
                       : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
@@ -333,13 +379,13 @@ export function LogExplorerPage() {
             <table className="w-full text-left border-collapse text-xs">
               <thead className="sticky top-0 bg-slate-900 border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[11px]">
                 <tr>
-                  <th className="py-2.5 px-3 w-40">Timestamp</th>
-                  <th className="py-2.5 px-3 w-32">App</th>
-                  <th className="py-2.5 px-3 w-24">Level</th>
-                  <th className="py-2.5 px-3 w-24">Type</th>
-                  <th className="py-2.5 px-3 w-20">Status</th>
-                  <th className="py-2.5 px-3 w-20 text-right">Latency</th>
-                  <th className="py-2.5 px-3">Message / Endpoint</th>
+                  <th className="py-3 px-5 w-48">Timestamp</th>
+                  <th className="py-3 px-5 w-44">App</th>
+                  <th className="py-3 px-5 w-28">Level</th>
+                  <th className="py-3 px-5 w-32">Type</th>
+                  <th className="py-3 px-5 w-24">Status</th>
+                  <th className="py-3 px-5 w-24 text-right">Latency</th>
+                  <th className="py-3 px-5">Message / Endpoint</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-mono">
@@ -356,64 +402,86 @@ export function LogExplorerPage() {
                     </td>
                   </tr>
                 ) : (
-                  data.items.map((row: LogSummaryDto) => (
-                    <tr
-                      key={row.id}
-                      onClick={() => setSelectedLogId(row.id)}
-                      className="hover:bg-slate-800/60 cursor-pointer transition-colors"
-                    >
-                      <td className="py-2 px-3 text-slate-400 whitespace-nowrap">
-                        {new Date(row.timestamp).toLocaleString()}
-                      </td>
-                      <td className="py-2 px-3 whitespace-nowrap">
-                        <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-200 font-sans font-medium text-[11px]">
-                          {row.applicationName}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 whitespace-nowrap">
-                        <LevelBadge level={row.level} />
-                      </td>
-                      <td className="py-2 px-3 text-slate-400 whitespace-nowrap font-sans">
-                        {row.eventType}
-                      </td>
-                      <td className="py-2 px-3 whitespace-nowrap">
-                        {row.statusCode != null ? <StatusBadge code={row.statusCode} /> : '—'}
-                      </td>
-                      <td className="py-2 px-3 text-right text-slate-400 whitespace-nowrap">
-                        {row.elapsedMs != null ? `${row.elapsedMs.toFixed(0)}ms` : '—'}
-                      </td>
-                      <td className="py-2 px-3 text-slate-200 max-w-xl truncate">
-                        {row.httpMethod && (
-                          <span className="text-sky-400 font-semibold mr-1.5">{row.httpMethod}</span>
-                        )}
-                        {row.targetHost ? (
-                          <span className="text-indigo-300 mr-1">{row.targetHost}</span>
-                        ) : null}
-                        {row.requestPath && !row.message?.includes(row.requestPath) ? (
-                          <span className="text-slate-300 mr-2">
-                            {row.requestPath}
-                            {row.queryString ?? ''}
+                  data.items.map((row: LogSummaryDto) => {
+                    const isSelected = row.id === selectedLogId;
+                    return (
+                      <tr
+                        key={row.id}
+                        ref={(el) => {
+                          if (el) {
+                            rowRefs.current.set(row.id, el);
+                          } else {
+                            rowRefs.current.delete(row.id);
+                          }
+                        }}
+                        aria-selected={isSelected}
+                        onClick={() => setSelectedLogId(row.id)}
+                        className={`cursor-pointer transition-colors ${
+                          isSelected
+                            ? 'bg-emerald-500/15 hover:bg-emerald-500/20'
+                            : 'hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <td
+                          className={`py-2.5 px-5 whitespace-nowrap border-l-2 ${
+                            isSelected
+                              ? 'border-l-emerald-400 text-slate-200'
+                              : 'border-l-transparent text-slate-400'
+                          }`}
+                        >
+                          {new Date(row.timestamp).toLocaleString()}
+                        </td>
+                        <td className="py-2.5 px-5 whitespace-nowrap">
+                          <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-200 font-sans font-medium text-[11px]">
+                            {row.applicationName}
                           </span>
-                        ) : null}
-                        <span className="text-slate-300">{row.message || row.exceptionType || '—'}</span>
-                        {row.queryString && row.message && !row.message.includes(row.queryString) ? (
-                          <span className="text-slate-400 ml-1.5">{row.queryString}</span>
-                        ) : null}
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                        <td className="py-2.5 px-5 whitespace-nowrap">
+                          <LevelBadge level={row.level} />
+                        </td>
+                        <td className="py-2.5 px-5 text-slate-400 whitespace-nowrap font-sans">
+                          {row.eventType}
+                        </td>
+                        <td className="py-2.5 px-5 whitespace-nowrap">
+                          {row.statusCode != null ? <StatusBadge code={row.statusCode} /> : '—'}
+                        </td>
+                        <td className="py-2.5 px-5 text-right text-slate-400 whitespace-nowrap">
+                          {row.elapsedMs != null ? `${row.elapsedMs.toFixed(0)}ms` : '—'}
+                        </td>
+                        <td className="py-2.5 px-5 text-slate-200 max-w-3xl truncate">
+                          {row.httpMethod && (
+                            <span className="text-sky-400 font-semibold mr-1.5">{row.httpMethod}</span>
+                          )}
+                          {row.targetHost ? (
+                            <span className="text-indigo-300 mr-1">{row.targetHost}</span>
+                          ) : null}
+                          {row.requestPath && !row.message?.includes(row.requestPath) ? (
+                            <span className="text-slate-300 mr-2">
+                              {row.requestPath}
+                              {row.queryString ?? ''}
+                            </span>
+                          ) : null}
+                          <span className="text-slate-300">{row.message || row.exceptionType || '—'}</span>
+                          {row.queryString && row.message && !row.message.includes(row.queryString) ? (
+                            <span className="text-slate-400 ml-1.5">{row.queryString}</span>
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
           </div>
         </div>
-      </div>
 
-      <LogDetailDrawer
-        logId={selectedLogId}
-        onClose={() => setSelectedLogId(null)}
-        onSelectLog={(id) => setSelectedLogId(id)}
-      />
+        {/* Always-Docked Log Detail Panel */}
+        <LogDetailDrawer
+          logId={selectedLogId}
+          onClose={() => setSelectedLogId(null)}
+          onSelectLog={(id) => setSelectedLogId(id)}
+        />
+      </div>
     </div>
   );
 }
@@ -421,10 +489,10 @@ export function LogExplorerPage() {
 function FacetGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2">
+      <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2.5">
         {title}
       </div>
-      <div className="space-y-1">{children}</div>
+      <div className="space-y-1.5">{children}</div>
     </div>
   );
 }

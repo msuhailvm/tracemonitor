@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
 using TraceMonitor.Api.Auth;
 using TraceMonitor.Api.Configuration;
 using TraceMonitor.Api.Data;
@@ -72,6 +73,33 @@ builder.Services
 
 builder.Services.AddAuthorization();
 
+// Swagger / OpenAPI (enabled in all environments including Production)
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "TraceMonitor API",
+        Version = "v1",
+        Description = "Log ingestion, search, trace correlation, and application health API."
+    });
+
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Enter your JWT token."
+    });
+
+    options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
+    {
+        [new OpenApiSecuritySchemeReference("Bearer", document)] = []
+    });
+});
+
 var app = builder.Build();
 
 app.UseForwardedHeaders();
@@ -85,6 +113,17 @@ if (builder.Configuration.GetValue<bool>("UseHttpsRedirection"))
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Swagger UI (available in Development and Production)
+app.UseSwagger();
+app.UseSwaggerUI(options =>
+{
+    options.SwaggerEndpoint("/swagger/v1/swagger.json", "TraceMonitor API v1");
+    options.RoutePrefix = "swagger";
+});
+
+// Redirect root to Swagger UI
+app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription().AllowAnonymous();
 
 // Health check
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTimeOffset.UtcNow })).AllowAnonymous();
