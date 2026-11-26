@@ -9,7 +9,10 @@ import type {
   TraceLogsResponse,
 } from '../types/telemetry';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5080').replace(/\/$/, '');
+const DEFAULT_API_BASE_URL = import.meta.env.PROD
+  ? 'https://logs.tracemonitor.online'
+  : 'http://localhost:5080';
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, '');
 const TOKEN_KEY = 'tm_jwt_token';
 const USER_KEY = 'tm_user';
 

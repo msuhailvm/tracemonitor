@@ -9,7 +9,7 @@ public sealed class TraceMonitorOptions
     /// <summary>Master switch to enable/disable telemetry shipping.</summary>
     public bool Enabled { get; set; } = true;
 
-    /// <summary>Base URL of TraceMonitor.Api, e.g. https://logs-api.yourdomain.com</summary>
+    /// <summary>Base URL of TraceMonitor.Api, e.g. https://logs.tracemonitor.online</summary>
     public string Endpoint { get; set; } = string.Empty;
 
     /// <summary>Ingestion API key issued for this application.</summary>
