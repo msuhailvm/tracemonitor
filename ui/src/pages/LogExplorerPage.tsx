@@ -362,7 +362,7 @@ export function LogExplorerPage() {
               apps.map((app) => (
                 <label
                   key={app.id}
-                  className="flex items-center gap-2.5 text-sm text-slate-300 hover:text-white cursor-pointer py-1"
+                  className="flex items-center gap-2.5 text-sm text-slate-300 hover:text-slate-100 cursor-pointer py-1"
                 >
                   <input
                     type="checkbox"

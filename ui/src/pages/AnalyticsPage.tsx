@@ -240,7 +240,7 @@ export function AnalyticsPage() {
               className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors cursor-pointer flex items-center justify-between ${
                 selectedAppId === ''
                   ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-medium'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent'
+                  : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/60 border border-transparent'
               }`}
             >
               <span className="truncate">All Applications</span>
@@ -257,7 +257,7 @@ export function AnalyticsPage() {
                   className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors cursor-pointer flex items-center ${
                     isSelected
                       ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-medium'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent'
+                      : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/60 border border-transparent'
                   }`}
                 >
                   <span className="truncate">{app.name}</span>

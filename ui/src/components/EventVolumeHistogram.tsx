@@ -185,7 +185,7 @@ export function EventVolumeHistogram({
                     {formatTooltipRange(hoveredBucket.timestamp, bucketSeconds)}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-2 font-mono">
-                    <span className="font-semibold text-white">
+                    <span className="font-semibold text-slate-100">
                       {hoveredBucket.total.toLocaleString()} total
                     </span>
                     {Object.entries(hoveredBucket.counts)

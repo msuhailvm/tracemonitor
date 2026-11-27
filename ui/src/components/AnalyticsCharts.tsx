@@ -314,7 +314,7 @@ export function MultiLineChart({
                   <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
                   {item.label}
                 </span>
-                <span className="font-semibold text-white">
+                <span className="font-semibold text-slate-100">
                   {item.value.toFixed(item.value >= 100 ? 0 : 1)}
                   {unit}
                 </span>
@@ -344,7 +344,7 @@ export function MultiLineChart({
                 y1={tick.y}
                 x2={W - padR}
                 y2={tick.y}
-                stroke="#1e293b"
+                stroke="var(--chart-grid)"
                 strokeWidth="1"
                 strokeDasharray={i === 0 ? undefined : '3 3'}
               />
@@ -352,7 +352,7 @@ export function MultiLineChart({
                 x={padL - 6}
                 y={tick.y + 3}
                 textAnchor="end"
-                fill="#64748b"
+                fill="var(--chart-axis)"
                 fontSize="10"
                 fontFamily="ui-monospace, monospace"
               >
@@ -372,7 +372,7 @@ export function MultiLineChart({
               x={tick.x}
               y={H - 4}
               textAnchor={i === 0 ? 'start' : i === xTicks.length - 1 ? 'end' : 'middle'}
-              fill="#64748b"
+              fill="var(--chart-axis)"
               fontSize="10"
               fontFamily="ui-monospace, monospace"
             >
@@ -415,7 +415,7 @@ export function MultiLineChart({
               y1={padT}
               x2={xOf(hoveredTime)}
               y2={padT + plotH}
-              stroke="#475569"
+              stroke="var(--chart-crosshair)"
               strokeWidth="1"
               strokeDasharray="3 3"
             />
