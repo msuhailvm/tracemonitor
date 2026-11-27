@@ -71,7 +71,7 @@ export function AnalyticsPage() {
 
   const latencyQuery = useQuery({
     queryKey: ['analytics-latency', filterParams],
-    queryFn: () => apiClient.getLatencyAnalytics({ ...filterParams, top: 10 }),
+    queryFn: () => apiClient.getLatencyAnalytics({ ...filterParams, top: 8 }),
   });
 
   const resourcesQuery = useQuery({
@@ -188,15 +188,16 @@ export function AnalyticsPage() {
   const latSummary = latencyQuery.data?.summary;
   const appBreakdown = errorRateQuery.data?.byApplication ?? [];
   const maxAppErrors = Math.max(1, ...appBreakdown.map((a) => a.totalErrors));
-  const slowRows =
+  const slowRows = (
     slowTab === 'endpoints'
       ? (latencyQuery.data?.slowestEndpoints ?? [])
-      : (latencyQuery.data?.slowestDependencies ?? []);
+      : (latencyQuery.data?.slowestDependencies ?? [])
+  ).slice(0, 8);
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] flex overflow-hidden">
+    <div className="flex-1 flex min-w-0">
       {/* Fixed, Non-Scrollable Left Sidebar */}
-      <aside className="w-64 shrink-0 border-r border-slate-800 bg-slate-900/30 p-5 flex flex-col gap-6 overflow-hidden text-sm">
+      <aside className="w-64 shrink-0 border-r border-slate-800 bg-slate-900/30 p-5 flex flex-col gap-6 sticky top-14 h-[calc(100vh-3.5rem)] overflow-hidden text-sm">
         {/* Time Range & Refresh */}
         <div className="space-y-2.5">
           <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -268,8 +269,8 @@ export function AnalyticsPage() {
         </div>
       </aside>
 
-      {/* Full-Width Scrollable Main Content */}
-      <div className="flex-1 min-w-0 overflow-y-auto px-6 py-6 space-y-6">
+      {/* Full-Width Main Content */}
+      <div className="flex-1 min-w-0 px-6 py-6 space-y-6">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -344,10 +345,10 @@ export function AnalyticsPage() {
         />
       </div>
 
-      {/* Row 1: Requests & Errors Over Time + Error Breakdown by API */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-slate-900/70 border border-slate-800 rounded-xl p-4">
-          <div className="flex items-center justify-between mb-3">
+      {/* Row 1: Requests & Errors Over Time + Slowest Endpoints & Outgoing Dependencies (50/50) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 flex flex-col">
+          <div className="flex items-center justify-between mb-3 shrink-0">
             <div>
               <h2 className="text-sm font-semibold text-slate-100">Requests &amp; Errors Over Time</h2>
               <p className="text-xs text-slate-500">Stacked request volume vs error volume per bucket</p>
@@ -366,137 +367,6 @@ export function AnalyticsPage() {
           <RequestsErrorsChart
             data={errorRateQuery.data?.timeline ?? []}
             isLoading={errorRateQuery.isLoading}
-          />
-        </div>
-
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 flex flex-col">
-          <div className="mb-3">
-            <h2 className="text-sm font-semibold text-slate-100">Error Breakdown by API</h2>
-            <p className="text-xs text-slate-500">Click an API to inspect its errors in Log Explorer</p>
-          </div>
-          {errorRateQuery.isLoading && appBreakdown.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center text-xs text-slate-500">
-              Loading breakdown...
-            </div>
-          ) : appBreakdown.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center text-xs text-slate-500">
-              No API traffic in this window.
-            </div>
-          ) : (
-            <div className="space-y-3 overflow-y-auto max-h-56 pr-1">
-              {appBreakdown.map((app) => {
-                const widthPct = app.totalErrors > 0 ? Math.max(4, (app.totalErrors / maxAppErrors) * 100) : 0;
-                return (
-                  <button
-                    key={app.applicationId}
-                    type="button"
-                    onClick={() => openAppErrorsInLogs(app.applicationId)}
-                    className="w-full text-left group p-2 rounded-lg hover:bg-slate-800/70 transition-colors cursor-pointer"
-                  >
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="font-medium text-slate-200 group-hover:text-emerald-400 truncate pr-2">
-                        {app.applicationName}
-                      </span>
-                      <span className="font-mono text-slate-400 shrink-0">
-                        <span className={app.totalErrors > 0 ? 'text-rose-400 font-semibold' : 'text-slate-400'}>
-                          {app.totalErrors.toLocaleString()} err
-                        </span>
-                        {' · '}
-                        {app.errorRatePercent.toFixed(1)}%
-                      </span>
-                    </div>
-                    <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-rose-500/80 transition-all"
-                        style={{ width: `${widthPct}%` }}
-                      />
-                    </div>
-                    <div className="mt-1 text-[11px] font-mono text-slate-500">
-                      {app.totalRequests.toLocaleString()} requests
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Row 2: CPU % Over Time & Memory / GC / Threads Over Time */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-1.5">
-                <Cpu className="w-4 h-4 text-emerald-400" />
-                CPU % Over Time per API
-              </h2>
-              <p className="text-xs text-slate-500">Periodic process heartbeats from app_metrics</p>
-            </div>
-          </div>
-          <MultiLineChart
-            series={cpuSeries}
-            unit="%"
-            isLoading={resourcesQuery.isLoading}
-            emptyText="No CPU heartbeats recorded in this time range."
-          />
-        </div>
-
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-1.5">
-                <MemoryStick className="w-4 h-4 text-sky-400" />
-                Memory &amp; Runtime Health per API
-              </h2>
-              <p className="text-xs text-slate-500">Spot leaks, GC pressure, and app pool recycles</p>
-            </div>
-            <div className="flex items-center rounded-md border border-slate-800 bg-slate-950 p-0.5 text-[11px]">
-              {(
-                [
-                  { id: 'workingSetMb', label: 'RAM (MB)' },
-                  { id: 'gcHeapMb', label: 'GC Heap' },
-                  { id: 'threadCount', label: 'Threads' },
-                ] as const
-              ).map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setResourceTab(tab.id)}
-                  className={`px-2 py-1 rounded transition-colors cursor-pointer ${
-                    resourceTab === tab.id
-                      ? 'bg-slate-800 text-emerald-400 font-medium'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <MultiLineChart
-            series={memorySeries}
-            unit={resourceTab === 'threadCount' ? '' : ' MB'}
-            isLoading={resourcesQuery.isLoading}
-            emptyText="No memory/runtime heartbeats recorded in this time range."
-          />
-        </div>
-      </div>
-
-      {/* Row 3: Latency Trends (P50 / P95 / P99) & Slowest Endpoints / Dependencies */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 flex flex-col">
-          <div className="mb-3 shrink-0">
-            <h2 className="text-sm font-semibold text-slate-100">Latency Trends (P50 / P95 / P99)</h2>
-            <p className="text-xs text-slate-500">Incoming HTTP request response times in milliseconds</p>
-          </div>
-          <MultiLineChart
-            series={latencySeries}
-            unit=" ms"
-            isLoading={latencyQuery.isLoading}
-            emptyText="No latency data recorded in this time range."
-            minHeight={220}
-            fillHeight
           />
         </div>
 
@@ -601,82 +471,216 @@ export function AnalyticsPage() {
         </div>
       </div>
 
-      {/* Row 4: Top Recurring Exceptions */}
-      <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-1.5">
-              <AlertTriangle className="w-4 h-4 text-rose-400" />
-              Top Recurring Exceptions
-            </h2>
-            <p className="text-xs text-slate-500">
-              Click any exception row to open Log Explorer pre-filtered to that error
-            </p>
+      {/* Row 2: CPU % + Memory & Runtime Health + Latency Trends (3 equal columns) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 flex flex-col">
+          <div className="flex items-center justify-between mb-3 shrink-0">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-1.5">
+                <Cpu className="w-4 h-4 text-emerald-400" />
+                CPU % Over Time per API
+              </h2>
+              <p className="text-xs text-slate-500">Periodic process heartbeats from app_metrics</p>
+            </div>
           </div>
+          <MultiLineChart
+            series={cpuSeries}
+            unit="%"
+            isLoading={resourcesQuery.isLoading}
+            emptyText="No CPU heartbeats recorded in this time range."
+            minHeight={210}
+            fillHeight
+          />
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead className="border-b border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider">
-              <tr>
-                <th className="py-2.5 pr-4">Exception Type</th>
-                <th className="py-2.5 pr-4">Application</th>
-                <th className="py-2.5 pr-4">Route</th>
-                <th className="py-2.5 pr-4">Sample Message</th>
-                <th className="py-2.5 px-3 text-right">Occurrences</th>
-                <th className="py-2.5 pl-3 text-right">Last Seen</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60 font-mono">
-              {topExceptionsQuery.isLoading ? (
-                <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-500 font-sans">
-                    Loading recurring exceptions...
-                  </td>
-                </tr>
-              ) : !topExceptionsQuery.data || topExceptionsQuery.data.items.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-500 font-sans">
-                    No exceptions recorded in this time window.
-                  </td>
-                </tr>
-              ) : (
-                topExceptionsQuery.data.items.map((item, idx) => (
-                  <tr
-                    key={`${item.applicationId}-${item.exceptionType}-${item.requestPath ?? ''}-${idx}`}
-                    onClick={() => openExceptionInLogs(item)}
-                    className="hover:bg-slate-800/60 cursor-pointer transition-colors group"
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 flex flex-col">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3 shrink-0">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-1.5">
+                <MemoryStick className="w-4 h-4 text-sky-400" />
+                Memory &amp; Runtime Health per API
+              </h2>
+              <p className="text-xs text-slate-500">Spot leaks, GC pressure, and app pool recycles</p>
+            </div>
+            <div className="flex items-center rounded-md border border-slate-800 bg-slate-950 p-0.5 text-[11px]">
+              {(
+                [
+                  { id: 'workingSetMb', label: 'RAM (MB)' },
+                  { id: 'gcHeapMb', label: 'GC Heap' },
+                  { id: 'threadCount', label: 'Threads' },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setResourceTab(tab.id)}
+                  className={`px-2 py-1 rounded transition-colors cursor-pointer ${
+                    resourceTab === tab.id
+                      ? 'bg-slate-800 text-emerald-400 font-medium'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <MultiLineChart
+            series={memorySeries}
+            unit={resourceTab === 'threadCount' ? '' : ' MB'}
+            isLoading={resourcesQuery.isLoading}
+            emptyText="No memory/runtime heartbeats recorded in this time range."
+            minHeight={210}
+            fillHeight
+          />
+        </div>
+
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 flex flex-col">
+          <div className="mb-3 shrink-0">
+            <h2 className="text-sm font-semibold text-slate-100">Latency Trends (P50 / P95 / P99)</h2>
+            <p className="text-xs text-slate-500">Incoming HTTP request response times in milliseconds</p>
+          </div>
+          <MultiLineChart
+            series={latencySeries}
+            unit=" ms"
+            isLoading={latencyQuery.isLoading}
+            emptyText="No latency data recorded in this time range."
+            minHeight={210}
+            fillHeight
+          />
+        </div>
+      </div>
+
+      {/* Row 3: Error Breakdown by API + Top Recurring Exceptions */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 flex flex-col">
+          <div className="mb-3">
+            <h2 className="text-sm font-semibold text-slate-100">Error Breakdown by API</h2>
+            <p className="text-xs text-slate-500">Click an API to inspect its errors in Log Explorer</p>
+          </div>
+          {errorRateQuery.isLoading && appBreakdown.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center text-xs text-slate-500">
+              Loading breakdown...
+            </div>
+          ) : appBreakdown.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center text-xs text-slate-500">
+              No API traffic in this window.
+            </div>
+          ) : (
+            <div className="space-y-3 overflow-y-auto max-h-72 pr-1">
+              {appBreakdown.map((app) => {
+                const widthPct = app.totalErrors > 0 ? Math.max(4, (app.totalErrors / maxAppErrors) * 100) : 0;
+                return (
+                  <button
+                    key={app.applicationId}
+                    type="button"
+                    onClick={() => openAppErrorsInLogs(app.applicationId)}
+                    className="w-full text-left group p-2 rounded-lg hover:bg-slate-800/70 transition-colors cursor-pointer"
                   >
-                    <td className="py-2.5 pr-4 text-rose-300 font-semibold whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1.5">
-                        <span>{item.exceptionType}</span>
-                        <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 text-emerald-400 transition-opacity" />
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="font-medium text-slate-200 group-hover:text-emerald-400 truncate pr-2">
+                        {app.applicationName}
                       </span>
-                    </td>
-                    <td className="py-2.5 pr-4 whitespace-nowrap font-sans">
-                      <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-[11px]">
-                        {item.applicationName}
+                      <span className="font-mono text-slate-400 shrink-0">
+                        <span className={app.totalErrors > 0 ? 'text-rose-400 font-semibold' : 'text-slate-400'}>
+                          {app.totalErrors.toLocaleString()} err
+                        </span>
+                        {' · '}
+                        {app.errorRatePercent.toFixed(1)}%
                       </span>
-                    </td>
-                    <td className="py-2.5 pr-4 text-slate-300 max-w-[200px] truncate">
-                      {item.requestPath || '—'}
-                    </td>
-                    <td className="py-2.5 pr-4 text-slate-400 max-w-md truncate font-sans">
-                      {item.sampleMessage || '—'}
-                    </td>
-                    <td className="py-2.5 px-3 text-right">
-                      <span className="px-2 py-0.5 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-300 font-semibold">
-                        {item.count.toLocaleString()}
-                      </span>
-                    </td>
-                    <td className="py-2.5 pl-3 text-right text-slate-400 whitespace-nowrap">
-                      {new Date(item.lastSeen).toLocaleString()}
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-rose-500/80 transition-all"
+                        style={{ width: `${widthPct}%` }}
+                      />
+                    </div>
+                    <div className="mt-1 text-[11px] font-mono text-slate-500">
+                      {app.totalRequests.toLocaleString()} requests
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="lg:col-span-2 bg-slate-900/70 border border-slate-800 rounded-xl p-4 flex flex-col">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 text-rose-400" />
+                Top Recurring Exceptions
+              </h2>
+              <p className="text-xs text-slate-500">
+                Click any exception row to open Log Explorer pre-filtered to that error
+              </p>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead className="border-b border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider">
+                <tr>
+                  <th className="py-2.5 pr-4">Exception Type</th>
+                  <th className="py-2.5 pr-4">Application</th>
+                  <th className="py-2.5 pr-4">Route</th>
+                  <th className="py-2.5 pr-4">Sample Message</th>
+                  <th className="py-2.5 px-3 text-right">Occurrences</th>
+                  <th className="py-2.5 pl-3 text-right">Last Seen</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 font-mono">
+                {topExceptionsQuery.isLoading ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-slate-500 font-sans">
+                      Loading recurring exceptions...
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : !topExceptionsQuery.data || topExceptionsQuery.data.items.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-slate-500 font-sans">
+                      No exceptions recorded in this time window.
+                    </td>
+                  </tr>
+                ) : (
+                  topExceptionsQuery.data.items.map((item, idx) => (
+                    <tr
+                      key={`${item.applicationId}-${item.exceptionType}-${item.requestPath ?? ''}-${idx}`}
+                      onClick={() => openExceptionInLogs(item)}
+                      className="hover:bg-slate-800/60 cursor-pointer transition-colors group"
+                    >
+                      <td className="py-2.5 pr-4 text-rose-300 font-semibold whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span>{item.exceptionType}</span>
+                          <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 text-emerald-400 transition-opacity" />
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-4 whitespace-nowrap font-sans">
+                        <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-[11px]">
+                          {item.applicationName}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-4 text-slate-300 max-w-[200px] truncate">
+                        {item.requestPath || '—'}
+                      </td>
+                      <td className="py-2.5 pr-4 text-slate-400 max-w-md truncate font-sans">
+                        {item.sampleMessage || '—'}
+                      </td>
+                      <td className="py-2.5 px-3 text-right">
+                        <span className="px-2 py-0.5 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-300 font-semibold">
+                          {item.count.toLocaleString()}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pl-3 text-right text-slate-400 whitespace-nowrap">
+                        {new Date(item.lastSeen).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
       </div>

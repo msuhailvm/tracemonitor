@@ -111,14 +111,17 @@ html[data-theme="light"] .rounded-xl {
   background: #334155;
 }
 
-/* Colourful light scrollbars */
+/* Colourful light scrollbars (root viewport + nested containers) */
+html[data-theme="light"]::-webkit-scrollbar-track,
 html[data-theme="light"] ::-webkit-scrollbar-track {
   background: #eef4ff;
 }
+html[data-theme="light"]::-webkit-scrollbar-thumb,
 html[data-theme="light"] ::-webkit-scrollbar-thumb {
   background: #c7d4f0;
   border-radius: 4px;
 }
+html[data-theme="light"]::-webkit-scrollbar-thumb:hover,
 html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   background: #9eb4e3;
 }

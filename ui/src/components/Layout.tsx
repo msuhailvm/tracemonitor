@@ -15,7 +15,7 @@ export function Layout() {
 
   return (
     <div className="tm-app-shell min-h-screen flex flex-col bg-slate-950 text-slate-100">
-      <header className="relative h-14 border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-30 px-4 flex items-center justify-between">
+      <header className="h-14 border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-30 px-4 flex items-center justify-between">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2 font-semibold text-slate-100 tracking-tight">
             <div className="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">

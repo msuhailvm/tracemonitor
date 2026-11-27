@@ -66,7 +66,7 @@ export function RequestsErrorsChart({ data, isLoading }: RequestsErrorsChartProp
   }
 
   return (
-    <div className="relative" onMouseLeave={() => setHoveredIdx(null)}>
+    <div className="relative flex-1 flex flex-col min-h-0" onMouseLeave={() => setHoveredIdx(null)}>
       {hovered && (
         <div className="pointer-events-none absolute top-0 right-0 z-10 rounded-md border border-slate-700 bg-slate-900/95 px-3 py-2 text-xs shadow-lg">
           <div className="font-mono text-slate-300">{new Date(hovered.timestamp).toLocaleString()}</div>
@@ -78,7 +78,7 @@ export function RequestsErrorsChart({ data, isLoading }: RequestsErrorsChartProp
         </div>
       )}
 
-      <div className="h-48 flex items-end gap-[3px] border-b border-slate-800 pt-6 pb-0.5">
+      <div className="flex-1 min-h-48 flex items-end gap-[3px] border-b border-slate-800 pt-6 pb-0.5">
         {data.map((bucket, idx) => {
           const total = Math.max(bucket.requests, bucket.errors);
           const okCount = Math.max(0, bucket.requests - bucket.errors);
